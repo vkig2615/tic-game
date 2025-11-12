@@ -1,182 +1,80 @@
-name: CI/CD Pipeline
-
+Name: deploy the tic-tac-toe app to ssh server
 on:
   push:
-    branches: [ main ]
-    paths-ignore:
-      - 'kubernetes/deployment.yaml'  # Ignore changes to this file to prevent loops
-  pull_request:
-    branches: [ main ]
-
+    branches:
+      - main  
 jobs:
-  test:
-    name: Unit Testing
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Run tests
-        run: npm test || echo "No tests found, would add tests in a real project"
+        uses: actions/checkout@v2 
 
-  lint:
-    name: Static Code Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Run ESLint
-        run: npm run lint
+      - name: install dependencies
+        run: npm install
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [test, lint]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: run tests
+        run: npm test   
       
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Build project
+      - name: build the app
         run: npm run build
       
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: dist/
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-  docker:
-    name: Docker Build and Push
-    runs-on: ubuntu-latest
-    needs: [build]
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
-    outputs:
-      image_tag: ${{ steps.set_output.outputs.image_tag }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Wait for Quality Gate
+        uses: sonarsource/sonarqube-quality-gate-action@v1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - name: login to docker hub
+        uses: docker/login-action@v2
         with:
-          name: build-artifacts
-          path: dist/
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.TOKEN }}
-      
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,format=long
-            type=ref,event=branch
-            latest
-      
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          load: true
-      
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-      
-      - name: Push Docker image
-        uses: docker/build-push-action@v5
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+          
+      - name: build and push docker image
+        uses: docker/build-push-action@v2
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-      
-      - name: Set image tag output
-        id: set_output
-        run: echo "image_tag=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-
-  update-k8s:
-    name: Update Kubernetes Deployment
-    runs-on: ubuntu-latest
-    needs: [docker]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+          tags: vk2615/tic-tac-toe:latest
+      - name: trivy security scan
+        uses: aquasecurity/trivy-action@master
         with:
-          token: ${{ secrets.TOKEN }}
-      
-      - name: Setup Git config
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-      
-      - name: Update Kubernetes deployment file
-        env:
-          IMAGE_TAG: sha-${{ github.sha }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          REGISTRY: ghcr.io
-        run: |
-          # Define the new image with tag
-          NEW_IMAGE="${REGISTRY}/${GITHUB_REPOSITORY}:${IMAGE_TAG}"
-          
-          # Update the deployment file directly
-          sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
-          
-          # Verify the change
-          echo "Updated deployment to use image: ${NEW_IMAGE}"
-          grep -A 1 "image:" kubernetes/deployment.yaml
-      
-      - name: Commit and push changes
-        run: |
-          git add kubernetes/deployment.yaml
-          git commit -m "Update Kubernetes deployment with new image tag: ${{ needs.docker.outputs.image_tag }} [skip ci]" || echo "No changes to commit"
-          git push
+          image-ref: vk2615/tic-tac-toe:latest
+      - name: notify deployment start
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          message: "Deployment to production started for tic-tac-toe app."
+
+      - name: deploy to production server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_SERVER_HOST }}
+          username: ${{ secrets.SSH_SERVER_USER }}
+          key: ${{ secrets.SSH_SERVER_KEY }}
+          script: |
+            docker pull vk2615/tic-tac-toe:latest
+            docker stop tic-tac-toe || true
+            docker rm tic-tac-toe || true
+            docker run -d -p 3000:80 --name tic-tac-toe vk2615/tic-tac-toe:latest  
+
+      - name: notify deployment success
+        if: success()
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          message: "Deployment to production succeeded for tic-tac-toe app."
+
+      - name: notify deployment failure
+        if: failure()
+        uses: slackapi/slack-github-action@v2
+        with: 
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          message: "Deployment to production failed for tic-tac-toe app."
