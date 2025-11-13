@@ -59,6 +59,7 @@ jobs:
           host: ${{ secrets.SSH_SERVER_HOST }}
           username: ${{ secrets.SSH_SERVER_USER }}
           key: ${{ secrets.SSH_SERVER_KEY }}
+          port: ${{ secrets.SSH_SERVER_PORT }}
           script: |
             docker pull vk2615/tic-tac-toe:latest
             docker stop tic-tac-toe || true

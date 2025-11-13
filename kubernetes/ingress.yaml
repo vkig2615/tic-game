@@ -11,7 +11,7 @@ spec:
   - host: tic-tac-toe.example.com  # Replace with your actual domain
     http:
       paths:
-      - path: /
+      - path: 
         pathType: Prefix
         backend:
           service:

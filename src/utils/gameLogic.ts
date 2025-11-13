@@ -43,3 +43,87 @@ export function checkDraw(squares: Array<string | null>): boolean {
   // If all squares are filled, it's a draw
   return squares.every(square => square !== null);
 }
+
+/**
+ * AI player logic - evaluates the board and returns the best move
+ * Uses minimax algorithm with strategic scoring
+ * @param squares The current state of the board
+ * @returns The best square index for AI to play
+ */
+export function getAIMove(squares: Array<string | null>): number {
+  // Get all available moves
+  const availableMoves = squares
+    .map((square, index) => square === null ? index : null)
+    .filter(index => index !== null) as number[];
+
+  if (availableMoves.length === 0) {
+    return -1; // No moves available
+  }
+
+  let bestScore = -Infinity;
+  let bestMove = availableMoves[0];
+
+  // Evaluate each available move using minimax
+  for (const move of availableMoves) {
+    const newBoard = [...squares];
+    newBoard[move] = 'O';
+    const score = minimax(newBoard, 0, false);
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+
+  return bestMove;
+}
+
+/**
+ * Minimax algorithm for evaluating board positions
+ * @param squares The current board state
+ * @param depth The current depth in the search tree
+ * @param isMaximizing Whether we're maximizing (AI) or minimizing (Player)
+ * @returns The score of the position
+ */
+function minimax(squares: Array<string | null>, depth: number, isMaximizing: boolean): number {
+  const result = calculateWinner(squares);
+  
+  // Terminal states
+  if (result) {
+    return result.winner === 'O' ? 10 - depth : -10 + depth;
+  }
+  
+  if (checkDraw(squares)) {
+    return 0;
+  }
+
+  if (isMaximizing) {
+    // AI's turn (O) - maximize score
+    let bestScore = -Infinity;
+    
+    for (let i = 0; i < 9; i++) {
+      if (squares[i] === null) {
+        squares[i] = 'O';
+        const score = minimax(squares, depth + 1, false);
+        squares[i] = null;
+        bestScore = Math.max(bestScore, score);
+      }
+    }
+    
+    return bestScore;
+  } else {
+    // Player's turn (X) - minimize score
+    let bestScore = Infinity;
+    
+    for (let i = 0; i < 9; i++) {
+      if (squares[i] === null) {
+        squares[i] = 'X';
+        const score = minimax(squares, depth + 1, true);
+        squares[i] = null;
+        bestScore = Math.min(bestScore, score);
+      }
+    }
+    
+    return bestScore;
+  }
+}

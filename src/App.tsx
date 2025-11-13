@@ -3,7 +3,7 @@ import { RefreshCw, Award } from 'lucide-react';
 import Board from './components/Board';
 import ScoreBoard from './components/ScoreBoard';
 import GameHistory from './components/GameHistory';
-import { calculateWinner, checkDraw } from './utils/gameLogic';
+import { calculateWinner, checkDraw, getAIMove } from './utils/gameLogic';
 
 function App() {
   // Game state
@@ -17,6 +17,8 @@ function App() {
   }>>([]);
   const [gameStatus, setGameStatus] = useState<'playing' | 'won' | 'draw'>('playing');
   const [winningLine, setWinningLine] = useState<number[] | null>(null);
+  const [playWithAI, setPlayWithAI] = useState(false);
+  const [isAIThinking, setIsAIThinking] = useState(false);
 
   // Check for winner or draw
   useEffect(() => {
@@ -54,10 +56,34 @@ function App() {
     }
   }, [board]);
 
+  // Handle AI move after player move
+  useEffect(() => {
+    if (playWithAI && !xIsNext && gameStatus === 'playing' && !isAIThinking) {
+      setIsAIThinking(true);
+      
+      // Simulate thinking delay for better UX
+      const timer = setTimeout(() => {
+        const aiMove = getAIMove(board);
+        if (aiMove !== -1) {
+          const newBoard = [...board];
+          newBoard[aiMove] = 'O';
+          setBoard(newBoard);
+          setXIsNext(true);
+        }
+        setIsAIThinking(false);
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [xIsNext, board, playWithAI, gameStatus, isAIThinking]);
+
   // Handle square click
   const handleClick = (index: number) => {
     // Return if square is filled or game is over
     if (board[index] || gameStatus !== 'playing') return;
+    
+    // In AI mode, only allow player (X) to move on their turn
+    if (playWithAI && !xIsNext) return;
     
     const newBoard = [...board];
     newBoard[index] = xIsNext ? 'X' : 'O';
@@ -72,6 +98,7 @@ function App() {
     setXIsNext(true);
     setGameStatus('playing');
     setWinningLine(null);
+    setIsAIThinking(false);
   };
 
   // Reset all stats
@@ -85,10 +112,16 @@ function App() {
   const getStatusMessage = () => {
     if (gameStatus === 'won') {
       const winner = !xIsNext ? 'X' : 'O';
+      if (playWithAI) {
+        return winner === 'X' ? 'You win! 🎉' : 'AI wins! 🤖';
+      }
       return `Player ${winner} wins!`;
     } else if (gameStatus === 'draw') {
       return "It's a draw!";
     } else {
+      if (playWithAI) {
+        return isAIThinking ? 'AI is thinking...' : xIsNext ? 'Your turn (X)' : "AI's turn (O)";
+      }
       return `Next player: ${xIsNext ? 'X' : 'O'}`;
     }
   };
@@ -130,6 +163,19 @@ function App() {
                 className="bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-lg transition-colors"
               >
                 Reset All
+              </button>
+              <button 
+                onClick={() => {
+                  setPlayWithAI(!playWithAI);
+                  resetGame();
+                }}
+                className={`py-2 px-4 rounded-lg transition-colors ${
+                  playWithAI 
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                    : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+                }`}
+              >
+                {playWithAI ? '🤖 AI Mode' : 'vs AI'}
               </button>
             </div>
           </div>
